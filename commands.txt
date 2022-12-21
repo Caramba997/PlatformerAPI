@@ -1,0 +1,2 @@
+mongod --port 27017 --dbpath D:\Projekte\Platformer\db
+mongod --config="D:\Projekte\Platformer\db\mongo.config"
