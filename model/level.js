@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const levelSchema = new mongoose.Schema({
   json: { type: String },
+  name: { type: String },
   creator: { type: String },
   thumbnail: { type: String },
   version: { type: Number },
