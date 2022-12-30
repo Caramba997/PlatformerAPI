@@ -1,6 +1,6 @@
 const express = require('express'),
       router = express.Router(),
-      mongoose = require("mongoose"),
+      mongoose = require('mongoose'),
       cookieParser = require('cookie-parser'),
       bodyParser = require('body-parser'),
       cors = require('cors'),
@@ -16,7 +16,9 @@ require('./config/database.js').connect();
 
 var app = express();
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({
+  limit: '10mb'
+}));
 app.use(cookieParser());
 app.use(cors({
   origin: (origin, callback) => {
@@ -55,7 +57,8 @@ app.post('/register', async function (req, res) {
     const newUser = await User.create({
       username: username,
       password: encryptedPassword,
-      role: 'user'
+      role: 'user',
+      progress: '{}'
     });
 
     // Create token
@@ -102,8 +105,28 @@ router.get('/user', async function (req, res) {
   return res.status(200).json(user);
 });
 
-router.get('/user/createdlevels', async function (req, res) {
+router.post('/user/progress', async function (req, res) {
+  const { progress } = req.body;
+  if (!progress) return res.status(400).json({ msg: 'Progress is missing' });
+
+  try {
+    JSON.parse(progress);
+  }
+  catch (e) {
+    return res.status(400).json({ msg: 'Progress is not in valid JSON format' });
+  }
+
   const user = await User.findOne({ username: req.user.username }, { password: 0 });
+  if (!user) return res.status(404).json({ msg: 'User not found' });
+
+  user.progress = progress;
+  user.save();
+
+  return res.status(200).json(user);
+});
+
+router.get('/user/createdlevels', async function (req, res) {
+  const user = await User.findOne({ username: req.user.username });
   if (!user) return res.status(404).json({ msg: 'User not found' });
   
   const queryArray = [];
@@ -119,7 +142,7 @@ router.get('/user/createdlevels', async function (req, res) {
 });
 
 router.get('/user/alllevels', async function (req, res) {
-  const user = await User.findOne({ username: req.user.username }, { password: 0 });
+  const user = await User.findOne({ username: req.user.username });
   if (!user) return res.status(404).json({ msg: 'User not found' });
   
   let queryArray = [];
@@ -180,17 +203,18 @@ router.post('/user/unsubscribe', async function (req, res) {
 router.post('/level/save', async function (req, res) {
   try {
     // Get user input
-    const { _id, json, thumbnail, name } = req.body;
+    const { _id, json, name } = req.body;
+    if (!json) return res.status(400).json({ msg: 'Json must not be empty for level creation' });
 
     const user = await User.findOne({ username: req.user.username });
     if (!user) return res.status(404).json({ msg: 'User not found' });
 
     if (_id) {
+      if (!user.createdLevels.includes(_id)) return res.status(400).json({ msg: 'Users can only modify their own levels' });
       const level = await Level.findOne({ _id: _id });
       if (level) {
         level.name = (name) ? name : 'Level';
-        if (json) level.json = json;
-        if (thumbnail) level.thumbnail = thumbnail;
+        level.json = json;
         level.version = level.version + 1;
         level.lastModified = new Date().toUTCString();
         level.save();
@@ -198,14 +222,12 @@ router.post('/level/save', async function (req, res) {
       }
     }
 
-    if (!json) return res.status(400).json({ msg: 'Json must not be empty for level creation' });
-
     const creationDate = new Date().toUTCString();
     const newLevel = await Level.create({
       json: json,
       name: (name) ? name : 'Level',
       creator: user.username,
-      thumbnail: thumbnail || null,
+      thumbnail: null,
       version: 0,
       createdAt: creationDate,
       lastModified: creationDate
@@ -216,6 +238,27 @@ router.post('/level/save', async function (req, res) {
     user.save();
 
     return res.status(200).json(newLevel);
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+router.post('/level/thumbnail', async function (req, res) {
+  try {
+    const { _id, thumbnail } = req.body;
+    if (!_id) return res.status(400).json({ msg: 'ID is missing' });
+    if (!thumbnail) return res.status(400).json({ msg: 'Thumbnail data is missing' });
+
+    const user = await User.findOne({ username: req.user.username });
+    if (!user) return res.status(404).json({ msg: 'User not found' });
+
+    const level = await Level.findOne({ _id: _id });
+    if (!level) return res.status(404).json({ msg: 'No level found for given ID' });
+    
+    level.thumbnail = thumbnail;
+    level.lastModified = new Date().toUTCString();
+    level.save();
+    return res.status(200).json(level);
   } catch (err) {
     console.error(err);
   }
@@ -239,7 +282,7 @@ router.post('/level/get', async function (req, res) {
 
 router.get('/level/getall', async function (req, res) {
   try {
-    const levels = await Level.find({});
+    const levels = await Level.find({}, { json: 0 });
     if (levels) return res.status(200).json(levels);
 
     return res.status(404).json({ msg: 'Failed finding levels' });
