@@ -1,0 +1,21 @@
+const mongoose = require("mongoose");
+
+const highscoreSchema = new mongoose.Schema({
+  level: { type: String, unique: true },
+  time: [
+    {
+      user: { type: String },
+      score: { type: Number }
+    }
+  ],
+  points: [
+    {
+      user: { type: String },
+      score: { type: Number }
+    }
+  ]
+}, {
+  collection: 'highscores'
+});
+
+module.exports = mongoose.model("highscore", highscoreSchema);

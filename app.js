@@ -9,7 +9,8 @@ const express = require('express'),
       tools = require('./config/tools'),
       { verifyToken, createToken } = require('./middleware/auth'),
       User = require('./model/user'),
-      Level = require('./model/level');
+      Level = require('./model/level'),
+      Highscore = require('./model/highscore');
 
 require('dotenv').config();
 require('./config/database.js').connect();
@@ -105,21 +106,101 @@ router.get('/user', async function (req, res) {
   return res.status(200).json(user);
 });
 
-router.post('/user/progress', async function (req, res) {
-  const { progress } = req.body;
-  if (!progress) return res.status(400).json({ msg: 'Progress is missing' });
-
-  try {
-    JSON.parse(progress);
-  }
-  catch (e) {
-    return res.status(400).json({ msg: 'Progress is not in valid JSON format' });
-  }
+router.post('/user/highscore', async function (req, res) {
+  const { id, points, time } = req.body;
+  if (!(id && points && time)) return res.status(400).json({ msg: 'Parameter is missing' });
 
   const user = await User.findOne({ username: req.user.username }, { password: 0 });
   if (!user) return res.status(404).json({ msg: 'User not found' });
 
-  user.progress = progress;
+  if (!id.includes('level')) {
+    const level = await Level.findOne({ _id: id }, { json: 0 });
+    if (!level) return res.status(404).json({ msg: 'Level not found' });
+  }
+  
+  const progress = JSON.parse(user.progress),
+        levelProgress = progress[id],
+        newLevelProgress = {};
+  if (levelProgress) {
+    newLevelProgress.points = levelProgress.points;
+    newLevelProgress.time = levelProgress.time;
+    if (levelProgress.points < points) newLevelProgress.points = points;
+    if (levelProgress.time > time) newLevelProgress.time = time;
+  }
+  else {
+    newLevelProgress.points = points;
+    newLevelProgress.time = time;
+  }
+  progress[id] = newLevelProgress;
+
+  user.progress = JSON.stringify(progress);
+
+  const highscore = await Highscore.findOne({ level: id });
+  if (highscore) {
+    // Time highscores
+    let isHighscore = false;
+    for (let i = 0; i < highscore.time.length; i++) {
+      const current = highscore.time[i];
+      if (current.score < time) {
+        highscore.time.splice(i, 0, {
+          user: user.username,
+          score: time
+        });
+        isHighscore = true;
+        break;
+      }
+    }
+    if (highscore.time.length > 20) {
+      highscore.time.splice(20, highscore.time.length - 20);
+    }
+    else if (!isHighscore) {
+      highscore.time.push({
+        user: user.username,
+        score: time
+      });
+    }
+    // Points highscores
+    isHighscore = false;
+    for (let i = 0; i < highscore.points.length; i++) {
+      const current = highscore.points[i];
+      if (current.score < points) {
+        highscore.points.splice(i, 0, {
+          user: user.username,
+          score: points
+        });
+        isHighscore = true;
+        break;
+      }
+    }
+    if (highscore.points.length > 20) {
+      highscore.points.splice(20, highscore.points.length - 20);
+    }
+    else if (!isHighscore)  {
+      highscore.points.push({
+        user: user.username,
+        score: points
+      });
+    }
+    highscore.save();
+  }
+  else {
+    await Highscore.create({
+      level: id,
+      time: [
+        {
+          user: user.username,
+          score: time
+        }
+      ],
+      points: [
+        {
+          user: user.username,
+          score: points
+        }
+      ],
+    });
+  }
+
   user.save();
 
   return res.status(200).json(user);
@@ -309,6 +390,31 @@ router.post('/level/delete', async function (req, res) {
     }).catch(() => {
       return res.status(400).json({ msg: 'Level can not be deleted. There may be not level for given ID' });
     });
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+router.post('/highscore/get', async function (req, res) {
+  try {
+    const { _id } = req.body;
+    if (!_id) return res.status(400).json({ msg: 'ID is missing' });
+
+    const highscore = await Highscore.findOne({ _id: _id });
+    if (highscore) return res.status(200).json(highscore);
+
+    return res.status(404).json({ msg: 'Failed finding highscore' });
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+router.get('/highscore/getall', async function (req, res) {
+  try {
+    const highscores = await Highscore.find({});
+    if (highscores) return res.status(200).json(highscores);
+
+    return res.status(404).json({ msg: 'Failed finding highscores' });
   } catch (err) {
     console.error(err);
   }
