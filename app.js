@@ -141,7 +141,7 @@ router.post('/user/highscore', async function (req, res) {
     let isHighscore = false;
     for (let i = 0; i < highscore.time.length; i++) {
       const current = highscore.time[i];
-      if (current.score < time) {
+      if (current.score > time) {
         highscore.time.splice(i, 0, {
           user: user.username,
           score: time
